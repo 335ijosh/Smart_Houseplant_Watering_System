@@ -14,6 +14,10 @@
 #include "Grove_Air_quality_Sensor.h"
 #include "Adafruit_BME280.h"
 #include "neopixel.h"
+#include "credentials.h"
+#include <Adafruit_MQTT.h>//subscribe and publish
+#include "Adafruit_MQTT/Adafruit_MQTT_SPARK.h"
+#include "Adafruit_MQTT/Adafruit_MQTT.h"
 
 // Let Device OS manage the connection to the Particle Cloud
 SYSTEM_MODE(AUTOMATIC);
@@ -21,7 +25,7 @@ SYSTEM_MODE(AUTOMATIC);
 // Run the application and system concurrently in separate threads
 SYSTEM_THREAD(ENABLED);
 
-const int Pin=D16;//Motor pin
+const int PIN=D16;//Motor pin
 
 unsigned int currentTime;//capacitive sensor
 unsigned int lastSec;
@@ -31,7 +35,6 @@ unsigned int lastMoi;
 unsigned int lastAirCheck;
 int moi;
  String dateTime , timeOnly; 
- unsigned int lastTime;
 
  int pin = D13;// dust sensor pin
 unsigned long duration;
@@ -59,14 +62,31 @@ int PlantPixel;
 void pixelFill( int startPixel,int endPixel,int pixelColor);
 float mapFloat(float value, float inMin, float inMax, float outMin, float outMax);
 
+TCPClient TheClient; //publish and subscribe
+Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_KEY); 
+Adafruit_MQTT_Publish Smarthouseplant = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/smartplantmoisture");
+Adafruit_MQTT_Subscribe pump = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/watermotor");
+void MQTT_connect();
+bool MQTT_ping();
+unsigned int last,lastTime;
+int subValue;
+
+
 void setup() {
+
+WiFi.connect();
+while (WiFi.connecting()) {
+Serial.printf(".");
+}
+  mqtt.subscribe(&pump);
+
 Serial.begin(9600);
-pinMode(Pin,OUTPUT);//Motor pin
+pinMode(PIN,OUTPUT);//Motor pin
 pinMode(D11,INPUT);//Capacitive sensor
 
 Particle.syncTime();//Live time
 Time.zone(-7);//live time
-digitalWrite(Pin,LOW);
+digitalWrite(PIN,LOW);
 
 if (status == false) {
 Serial.printf("BME280 at address 0x%02X failed to start", 0x76); 
@@ -103,17 +123,23 @@ pixel.clear();
 
 // loop() runs over and over again, as quickly as it can execute.
 void loop() {
+MQTT_connect();
+MQTT_ping();
+
 currentTime = millis();
 if((currentTime-lastMoiCheck)>60000){ //moisture check
   lastMoiCheck = millis();
- moi=analogRead(D11);
+     if(mqtt.Update()) {
+        moi=analogRead(D11);
+        Smarthouseplant.publish(moi);
  if (moi >1759){
-  digitalWrite(Pin,HIGH);
+  digitalWrite(PIN,HIGH);
     //  lastPumpTime = millis();
       delay(500); //temp fix later 
 // if((millis()-lastPumpTime)>1000){
-        digitalWrite(Pin,LOW);
+        digitalWrite(PIN,LOW);
         Serial.printf("Moisture=%i\n",moi);
+ }
  }
 }
 
@@ -158,6 +184,24 @@ display.clearDisplay();
 PlantPixel=-.009*moi+26;
  pixelFill( 0,PlantPixel,0x0000FF);
  Serial.printf("Pixels=%i\n",PlantPixel);
+
+
+Adafruit_MQTT_Subscribe *subscription;
+  while ((subscription = mqtt.readSubscription(100))) {
+    if (subscription == &pump) {
+      subValue = atoi((char *)pump.lastread);
+      Serial.printf("Received %i from Adafruit.io feed FeedNameB \n",subValue);
+    }
+  }
+  if (subValue ==1)
+  {
+    digitalWrite(PIN,HIGH);
+  }
+  else
+  {
+    digitalWrite(PIN,LOW);
+  }
+
 }
 //}
 
@@ -168,4 +212,42 @@ for(i=startPixel; i<=endPixel; i++){
 }
 pixel.show();
 pixel.clear();
- }
+}
+
+
+// Function to connect and reconnect as necessary to the MQTT server.
+// Should be called in the loop function and it will take care if connecting.
+void MQTT_connect() {
+  int8_t ret;
+ 
+  // Return if already connected.
+  if (mqtt.connected()) {
+    return;
+  }
+ 
+  Serial.print("Connecting to MQTT... ");
+ 
+  while ((ret = mqtt.connect()) != 0) { // connect will return 0 for connected
+       Serial.printf("Error Code %s\n",mqtt.connectErrorString(ret));
+       Serial.printf("Retrying MQTT connection in 5 seconds...\n");
+       mqtt.disconnect();
+       delay(5000);  // wait 5 seconds and try again
+  }
+  Serial.printf("MQTT Connected!\n");
+}
+
+bool MQTT_ping() {
+  static unsigned int last;
+  bool pingStatus;
+
+  if ((millis()-last)>120000) {
+      Serial.printf("Pinging MQTT \n");
+      pingStatus = mqtt.ping();
+      if(!pingStatus) {
+        Serial.printf("Disconnecting \n");
+        mqtt.disconnect();
+      }
+      last = millis();
+  }
+  return pingStatus;
+}
