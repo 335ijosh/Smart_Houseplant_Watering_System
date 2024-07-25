@@ -65,7 +65,7 @@ float mapFloat(float value, float inMin, float inMax, float outMin, float outMax
 TCPClient TheClient; //publish and subscribe
 Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_KEY); 
 Adafruit_MQTT_Publish Smarthouseplant = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/smartplantmoisture");
-Adafruit_MQTT_Subscribe pump = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/watermotor");
+Adafruit_MQTT_Subscribe pump = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/waterpump");
 void MQTT_connect();
 bool MQTT_ping();
 unsigned int last,lastTime;
